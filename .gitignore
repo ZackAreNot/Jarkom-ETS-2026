@@ -1,0 +1,21 @@
+# Catatan kerja pribadi / konteks AI
+.claude/
+
+# Referensi dari luar (soal dosen, contoh laporan kelompok lain)
+2026 Mid-Project Jarkom.docx
+contohREADME.md
+
+# Backup file Packet Tracer per tahap
+backup/
+
+# File kunci / sementara Office & LibreOffice
+~$*
+.~lock.*#
+
+# Editor & sistem operasi
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
