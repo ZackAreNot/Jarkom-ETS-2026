@@ -961,16 +961,70 @@ Artinya: alamat yang cocok dengan `access-list 1` diterjemahkan ke IP milik `g0/
 
 ## Soal 6
 
->Dikerjakan Oleh Anggota B
+>Dikerjakan Oleh 
 
 ### Soal
 > Bangun tunnel GRE antara R-PUSAT dan R-PELABUHAN. Lalu lintas antara subnet Balai Kota dan subnet Pelabuhan harus melewati tunnel. Jelaskan mengapa router memilih jalur tunnel dan mengapa GRE saja tidak mengenkripsi data. Bonus (+5): enkripsi IPsec.
 
-*(Menyusul.)* Catatan dari bagian A:
-- Tunnel `192.168.12.0/30`: R-PUSAT `.1`, R-PELABUHAN `.2`. Alamat fisik R-PELABUHAN `10.96.241.54` sudah bisa dicapai dari R-PUSAT (rute L6 sudah ada).
-- Tunnel0 **jangan** diberi `ip nat inside/outside`. Lalu lintas Balai Kota ↔ Pelabuhan lewat tunnel tidak keluar G0/0, jadi tidak di-NAT.
+### Sebelum tunnel
+Dari `PC-PEGAWAI`, hasilnya lewat `R-UTARA`
+![dokumentasi](Screenshot/soal-6/1.pc-pegawai-before.png)
 
----
+### Buat tunnel di `R-PUSAT`
+![dokumentasi](Screenshot/soal-6/2.r-pusat-tun.png)
+
+| Perintah | Arti |
+| :--- | :--- |
+| `interface Tunnel0` | membuat interface virtual |
+| `ip address 192.168.12.1 ...` | IP tunnel |
+| `tunnel source Serial0/0/1` | ujung tunnel di sisi ini, port ke R-UTARA (10.96.241.37) |
+| `tunnel destination 10.96.241.54` | ujung tunnel di seberang, alamat fisik R-PELABUHAN |
+| `tunnel mode gre ip` | jenis tunnel GRE |
+
+### Buat tunnel di `R-PELABUHAN`
+![dokumentasi](Screenshot/soal-6/2.r-pelabuhan-tun.png)
+
+Alamat sumber dan tujuannya dibalik. 
+
+### Cek tunnel sudah hidup
+![dokumentasi](Screenshot/soal-6/3.r-pusat-status.png)
+
+### Paksa trafic lewat tunnel (`R-PUSAT`)
+Sudah ada dua jalan ke pelabuhan (utara dan tunnel). Route lama harus dilewati tetapi disimpan sebagai cadangan. 
+
+![dokumentasi](Screenshot/soal-6/4.r-pusat-conf.png)
+
+- `no ip route` menghapus route lama.
+- dua bars berikutnya membuat route baru lewat tunnel dengan AD 1 (bawaan static route).
+- dua baris terakhir memasang kembali route lama dengan AD 200, hanya jadi cadangan.
+
+### Atur arah balik (`R-PELABUHAN`)
+![dokumentasi](Screenshot/soal-6/4.r-pelabuhan-conf.png)
+
+Route ini untuk dua subnet Balai Kota: Pegawai (`10.96.224.0/21`) dan Server Balai Kota (`10.96.241.0/27`). Route ini lebih spesifik daripada default route, jadi yang dipilih adalah route tunnel.
+
+### Uji coba
+`Tunnel0` dan `line protocol` bernilai `is up` pada `R-PUSAT` dan `R-PELABUHAN`
+![dokumentasi](Screenshot/soal-6/5.tunnel0.png)
+
+dua route pelabuhan lewat `192.168.12.2` pada `R-PUSAT`
+![dokumentasi](Screenshot/soal-6/6-r-pusat-connect.png)
+
+route balai kota lewat `192.168.12.1` pada `R-PELABUHAN`
+![dokumentasi](Screenshot/soal-6/6.r-pelabuhan-connect.png)
+
+tracert dan ping pada `PC-PEGAWAI`
+![dokumentasi](Screenshot/soal-6/7.pc-pegawai-ping.png)
+![dokumentasi](Screenshot/soal-6/7.pc-pegawai-tracert.png)
+
+ping pada `PC-KANTOR-PELABUHAN`
+![dokumentasi](Screenshot/soal-6/7.pc-kantor-pelabuhan-ping.png)
+
+ping pada `PC-SCADA`
+![dokumentasi](Screenshot/soal-6/7.pc-scada-ping.png)
+
+### Router memilih jalur tunnel
+Di `R-PUSAT` ada dua route ke LAN Pelabuhan dengan prefix yang sama: satu lewat `Tunnel0` (`192.168.12.2`, AD 1) dan satu lewat `R-UTARA` (`10.96.241.38`, AD 200). Router memilih route dengan Administrative Distance **terkecil**, jadi **jalur tunnel yang dipakai**. Route lewat `R-UTARA` tetap ada di konfigurasi sebagai cadangan. Di `R-PELABUHAN`, route ke subnet Balai Kota lewat tunnel dipilih karena lebih spesifik (`/21` dan `/27`) daripada default route `0.0.0.0/0` ke `R-UTARA`, sesuai aturan longest prefix match.
 
 ## Soal 7
 
