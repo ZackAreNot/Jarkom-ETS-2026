@@ -12,7 +12,7 @@
 
 >Nama Anggota B | NRP
 
->Nama Anggota C | NRP
+>Michiko Artika Satriyo | 5027251105
 
 ---
 
@@ -1008,7 +1008,7 @@ Route ini untuk dua subnet Balai Kota: Pegawai (`10.96.224.0/21`) dan Server Bal
 ![dokumentasi](Screenshot/soal-6/5.tunnel0.png)
 
 dua route pelabuhan lewat `192.168.12.2` pada `R-PUSAT`
-![dokumentasi](Screenshot/soal-6/6-r-pusat-connect.png)
+![dokumentasi](Screenshot/soal-6/6.r-pusat-connect.png)
 
 route balai kota lewat `192.168.12.1` pada `R-PELABUHAN`
 ![dokumentasi](Screenshot/soal-6/6.r-pelabuhan-connect.png)
@@ -1025,6 +1025,57 @@ ping pada `PC-SCADA`
 
 ### Router memilih jalur tunnel
 Di `R-PUSAT` ada dua route ke LAN Pelabuhan dengan prefix yang sama: satu lewat `Tunnel0` (`192.168.12.2`, AD 1) dan satu lewat `R-UTARA` (`10.96.241.38`, AD 200). Router memilih route dengan Administrative Distance **terkecil**, jadi **jalur tunnel yang dipakai**. Route lewat `R-UTARA` tetap ada di konfigurasi sebagai cadangan. Di `R-PELABUHAN`, route ke subnet Balai Kota lewat tunnel dipilih karena lebih spesifik (`/21` dan `/27`) daripada default route `0.0.0.0/0` ke `R-UTARA`, sesuai aturan longest prefix match.
+
+## Soal Bonus
+### Mengaktifkan lisensi secruityk9 pada `R-PUSAT` dan `R-PELABUHAN`
+```bash
+configure terminal
+license boot module c2900 technology-package securityk9
+```
+
+Simpan dan reload
+``` bash
+end
+copy running-config startup-config
+reload
+```
+
+### Konfigurasi IPsec di `R-PUSAT`
+![dokumentasi](Screenshot/soal-bonus/1.r-pusat-enc.png)
+
+| Bagian | Fungsi |
+| ----- | ----- |
+| `crypto isakmp policy 10` | aturan negosiasi fase 1: AES-256, hash SHA, otentikasi pakai pre-shared key |
+| `crypto isakmp key ... address 10.96.241.54` | kunci rahasia untuk peer R-PELABUHAN (harus sama di kedua sisi) |
+| `transform-set TS-GRE` | fase 2: data dienkripsi AES-256 (ESP) dan dijaga integritasnya dengan SHA-HMAC |
+| `mode transport` | enkripsi dipasang di paket GRE yang sudah punya IP header sendiri |
+| `access-list 101` | trafik yang dienkripsi: hanya paket GRE dari .37 ke .54 |
+| `crypto map` | menyatukan peer, transform set, dan ACL |
+| `interface Serial0/0/1` | crypto map dipasang di interface tempat paket GRE keluar (sama dengan tunnel source) |
+
+### Konfigurasi IPsec di `R-PELABUHAN`
+Isi sama, tapi alamat dibalik dan interface nya `Serial0/0/0`
+![dokumentasi](Screenshot/soal-bonus/1.r-pelabuhan-enc.png)
+
+Setelah config, pastikan disimpan `copy running-config startup-config`.
+
+### Uji coba
+![dokumentasi](Screenshot/soal-bonus/2.pc-pegawai-ping.png)
+
+Cek state di `R-PUSAT` dengan `show crypto ipsec sa`
+![dokumentasi](Screenshot/soal-bonus/3.r-pusat-state.png)
+
+Fase 1: angka `#pkts encrypt` dan `#pkts decrypt` pada ping pertama di `PC-PEGAWAI`.
+![dokumentasi](Screenshot/soal-bonus/4.r-pusat-pkts.png)
+
+Fase 2: jika mengirim ping lagi di `PC-PEGAWAI`, angka `#pkts encrypt` dan `#pkts decrypt` akan naik.
+![dokumentasi](Screenshot/soal-bonus/4.r-pusat-pkts2.png)
+
+Tunnel tetap jalan 
+![dokumentasi](Screenshot/soal-bonus/5.tunnel.png)
+
+Tracert `PC-PEGAWAI` ke `PC-KANTOR-PELAUHAN` masih lewat `192.168.12.2`. 
+![dokumentasi](Screenshot/soal-bonus/5.tracert-pegawai-ke-kantor.png)
 
 ## Soal 7
 
