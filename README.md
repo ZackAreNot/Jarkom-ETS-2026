@@ -10,7 +10,7 @@
 
 >Maulana Zaki Putra Zakaria | 5027251009
 
->Nama Anggota B | NRP
+>I Made Tobby Anantha Adiwijaya | 5027251064
 
 >Michiko Artika Satriyo | 5027251105
 
@@ -1077,25 +1077,888 @@ Tunnel tetap jalan
 Tracert `PC-PEGAWAI` ke `PC-KANTOR-PELAUHAN` masih lewat `192.168.12.2`. 
 ![dokumentasi](Screenshot/soal-bonus/5.tracert-pegawai-ke-kantor.png)
 
+---
+
 ## Soal 7
 
->Dikerjakan Oleh Anggota B
+>Dikerjakan Oleh I Made Tobby Anantha Adiwijaya
 
 ### Soal
-> Kerjakan di file terpisah. Tambahkan link cadangan L7 antara R-DC dan R-UTARA dengan alamat yang belum digunakan. Ganti seluruh static route antar-router dengan OSPF: router tidak mengirim pesan OSPF ke LAN pengguna, default route hanya dikonfigurasi di R-PUSAT dan disebarkan lewat OSPF, dan konektivitas pulih otomatis jika satu link backbone putus.
+> Kerjakan di file terpisah. Tambahkan link cadangan L7 antara R-DC dan R-UTARA dengan alamat yang belum digunakan. Ganti static route antar-router dengan OSPF. Router tidak mengirim pesan OSPF ke LAN pengguna, default route hanya dikonfigurasi di R-PUSAT dan disebarkan melalui OSPF, dan konektivitas pulih otomatis jika satu link backbone putus.
 
-*(Menyusul.)* Catatan dari bagian A: L7 memakai `10.96.241.56/30`. R-DC masih punya `S0/0/1` kosong; R-UTARA perlu 1 modul HWIC-2T tambahan di slot 0/1 (`S0/1/0`).
+### 7.1 Tujuan dan ketentuan soal
+
+Pada soal ini kita diminta agar static route antar-router diganti OSPF, dan dikerjakan di **file terpisah** (`K12_VLSM_OSPF.pkt`, salinan dari file utama), dengan ketentuan:
+
+| Ketentuan | Penerapan |
+|---|---|
+| Tambah link cadangan L7 antara R-DC dan R-UTARA dengan alamat yang belum dipakai | `10.96.241.56/30` |
+| Router tidak mengirim pesan OSPF ke arah LAN pengguna | `passive-interface` pada semua port Gigabit yang menghadap LAN |
+| Default route ke internet hanya di R-PUSAT, router lain mendapatkannya lewat OSPF | `ip route 0.0.0.0 0.0.0.0 203.0.113.49` di R-PUSAT + `default-information originate` |
+| Jika satu link backbone putus, konektivitas pulih otomatis lewat jalur lain | Diuji dengan memutus L1 dan L2 (bagian 7.6) |
+
+### 7.2 Konsep singkat
+
+- **OSPF** adalah protokol *link-state*: setiap router mengumumkan jaringan yang dimilikinya, lalu semua router menghitung jalur terpendek sendiri. Berbeda dengan static route yang diisi manual, OSPF menyesuaikan diri otomatis saat link putus.
+- **Cost** OSPF = 100 Mbps ÷ kecepatan link. Link serial 1,544 Mbps bernilai cost 64, LAN Gigabit bernilai cost 1. Karena itu rute ke LAN yang terhubung langsung ke R-PUSAT bernilai 65 (64 + 1), dan LAN Pelabuhan bernilai 129 (64 + 64 + 1).
+- **Jarak administratif (AD)**: static route bernilai 1, OSPF 110. Selama static route masih ada, router memilihnya, sehingga OSPF baru benar-benar dipakai **setelah static route dihapus**. Itu sebabnya penghapusan dilakukan sebagai tahap terpisah, setelah OSPF terbukti membentuk rute yang benar.
+- **Wildcard mask** pada perintah `network` adalah kebalikan dari subnet mask. Contoh: `/21` (`255.255.248.0`) menjadi `0.0.7.255` (256 − 248 = 8, wildcard = 8 − 1 = 7).
+- **Passive interface**: jaringan pada interface tersebut tetap diumumkan, tetapi router tidak mengirim pesan hello OSPF ke sana, sehingga perangkat pengguna tidak menerima pesan routing.
+
+### 7.3 Tahap 1: Pemasangan link cadangan L7
+
+Alamat L7: `10.96.241.56/30`, R-DC `10.96.241.57` dan R-UTARA `10.96.241.58`.
+
+Langkah-langkahnya:
+1. R-UTARA tidak memiliki port serial kosong (dua serial bawaan dipakai L2 dan L6), sehingga tambahkan modul **HWIC-2T** pada slot 1 (router dimatikan, modul dipasang, router dinyalakan kembali). Port baru: `Serial0/1/0`.
+
+   ![Penambahan modul HWIC-2T di R-UTARA](Screenshot/soal-7/tahap-1/1_tambahkan-hwic2t.png)
+
+2. Dipasang kabel **Serial DCE** dari `Serial0/0/1` R-DC (sisi DCE) ke `Serial0/1/0` R-UTARA.
+
+   ![Pembuatan link L7 antara R-DC dan R-UTARA](Screenshot/soal-7/tahap-1/1_buat-link-L7.png)
+
+3. Konfigurasikan IP L7 melalui CLI. Klik router, pilih tab **CLI**, lalu tekan **Enter** sampai prompt muncul. Masukkan blok perintah sesuai router.
+
+   **R-DC** (ujung DCE):
+
+   ```
+   enable
+   configure terminal
+   interface Serial0/0/1
+   ip address 10.96.241.57 255.255.255.252
+   clock rate 64000
+   no shutdown
+   end
+   write memory
+   ```
+
+   **R-UTARA**:
+
+   ```
+   enable
+   configure terminal
+   interface Serial0/1/0
+   ip address 10.96.241.58 255.255.255.252
+   no shutdown
+   end
+   write memory
+   ```
+
+   Perintah `interface` memilih port serial yang dikonfigurasi. `end` keluar dari mode konfigurasi, lalu `write memory` menyimpan perubahan. `clock rate 64000` hanya dipasang pada ujung DCE, yaitu R-DC.
+
+   ![Konfigurasi dan pengecekan IP di R-DC](Screenshot/soal-7/tahap-1/1_dc-konfigurasi-ip-dan-cek.png)
+
+   ![Konfigurasi dan pengecekan IP di R-UTARA](Screenshot/soal-7/tahap-1/1_utara-konfigurasi-ip-dan-cek.png)
+
+Pemeriksaan: `ping 10.96.241.58` dari R-DC berhasil dan kedua serial berstatus `up/up`.
+
+### 7.4 Tahap 2: Mengaktifkan OSPF di tujuh router
+
+Semua router memakai **proses OSPF 1** dan **area 0** (backbone). Alasan kenapa dibikin satu area adalah agar jaringan hanya terdiri dari delapan router saja dalam satu domain administrasi.
+
+**Router ID** ditetapkan manual agar tidak berubah ketika interface ditambah (misalnya saat L7 dipasang).
+
+**Aturan memilih perintah `network`** ialah satu baris per interface, memakai Network ID dari Tabel VLSM (untuk LAN) atau kelipatan 4 terdekat (untuk link `/30`), dengan wildcard sesuai prefix. Di sini, interface link ke R-ISP (`G0/0` R-PUSAT) sengaja tidak dimasukkan karena R-ISP tidak boleh mengetahui jaringan privat (syarat pada soal 5 hehe).
+
+| Router | Router ID | Perintah `network` (area 0) | Passive interface |
+|---|---|---|---|
+| R-PUSAT | 1.1.1.1 | `10.96.224.0 0.0.7.255`, `10.96.241.0 0.0.0.31`, `10.96.241.32`, `.36`, `.40`, `.44`, `.48` (semuanya `0.0.0.3`) | G0/1, G0/2 |
+| R-DC | 2.2.2.2 | `10.96.96.0 0.0.31.255`, `10.96.239.0 0.0.0.255`, `10.96.241.32 0.0.0.3`, `10.96.241.56 0.0.0.3` | G0/0, G0/1 |
+| R-UTARA | 3.3.3.3 | `10.96.0.0 0.0.63.255`, `10.96.236.0 0.0.1.255`, `10.96.241.36`, `.52`, `.56` (semuanya `0.0.0.3`) | G0/0, G0/1 |
+| R-PELABUHAN | 4.4.4.4 | `10.96.160.0 0.0.31.255`, `10.96.240.0 0.0.0.127`, `10.96.241.52 0.0.0.3` | G0/0, G0/1 |
+| R-BARAT | 5.5.5.5 | `10.96.192.0 0.0.31.255`, `10.96.238.0 0.0.0.255`, `10.96.241.48 0.0.0.3` | G0/0, G0/1 |
+| R-TIMUR | 6.6.6.6 | `10.96.128.0 0.0.31.255`, `10.96.232.0 0.0.3.255`, `10.96.241.44 0.0.0.3` | G0/0, G0/1 |
+| R-SELATAN | 7.7.7.7 | `10.96.64.0 0.0.31.255`, `10.96.240.128 0.0.0.127`, `10.96.241.40 0.0.0.3` | G0/0, G0/1 |
+
+Masukkan blok konfigurasi berikut pada CLI router yang sesuai. Setiap blok dijalankan **di router yang disebutkan**, satu per satu. Perintah `write memory` menyimpan konfigurasi router tersebut.
+
+**R-PUSAT** (default route ke ISP harus sudah ada agar dapat diumumkan ke router lain):
+
+```
+enable
+configure terminal
+ip route 0.0.0.0 0.0.0.0 203.0.113.49
+router ospf 1
+router-id 1.1.1.1
+network 10.96.224.0 0.0.7.255 area 0
+network 10.96.241.0 0.0.0.31 area 0
+network 10.96.241.32 0.0.0.3 area 0
+network 10.96.241.36 0.0.0.3 area 0
+network 10.96.241.40 0.0.0.3 area 0
+network 10.96.241.44 0.0.0.3 area 0
+network 10.96.241.48 0.0.0.3 area 0
+passive-interface GigabitEthernet0/1
+passive-interface GigabitEthernet0/2
+default-information originate
+end
+write memory
+```
+
+`default-information originate` hanya ada di R-PUSAT karena perintah ini menyebarkan default route (ke R-ISP) kepada router lain lewat OSPF. Router selain R-PUSAT nanti akan muncul kode `O*E2` saat nanti static default mereka dihapus pada langkah berikutnya.
+
+**R-DC:**
+
+```
+enable
+configure terminal
+router ospf 1
+router-id 2.2.2.2
+network 10.96.96.0 0.0.31.255 area 0
+network 10.96.239.0 0.0.0.255 area 0
+network 10.96.241.32 0.0.0.3 area 0
+network 10.96.241.56 0.0.0.3 area 0
+passive-interface GigabitEthernet0/0
+passive-interface GigabitEthernet0/1
+end
+write memory
+```
+
+**R-UTARA:**
+
+```
+enable
+configure terminal
+router ospf 1
+router-id 3.3.3.3
+network 10.96.0.0 0.0.63.255 area 0
+network 10.96.236.0 0.0.1.255 area 0
+network 10.96.241.36 0.0.0.3 area 0
+network 10.96.241.52 0.0.0.3 area 0
+network 10.96.241.56 0.0.0.3 area 0
+passive-interface GigabitEthernet0/0
+passive-interface GigabitEthernet0/1
+end
+write memory
+```
+
+**R-PELABUHAN:**
+
+```
+enable
+configure terminal
+router ospf 1
+router-id 4.4.4.4
+network 10.96.160.0 0.0.31.255 area 0
+network 10.96.240.0 0.0.0.127 area 0
+network 10.96.241.52 0.0.0.3 area 0
+passive-interface GigabitEthernet0/0
+passive-interface GigabitEthernet0/1
+end
+write memory
+```
+
+**R-BARAT:**
+
+```
+enable
+configure terminal
+router ospf 1
+router-id 5.5.5.5
+network 10.96.192.0 0.0.31.255 area 0
+network 10.96.238.0 0.0.0.255 area 0
+network 10.96.241.48 0.0.0.3 area 0
+passive-interface GigabitEthernet0/0
+passive-interface GigabitEthernet0/1
+end
+write memory
+```
+
+**R-TIMUR:**
+
+```
+enable
+configure terminal
+router ospf 1
+router-id 6.6.6.6
+network 10.96.128.0 0.0.31.255 area 0
+network 10.96.232.0 0.0.3.255 area 0
+network 10.96.241.44 0.0.0.3 area 0
+passive-interface GigabitEthernet0/0
+passive-interface GigabitEthernet0/1
+end
+write memory
+```
+
+**R-SELATAN:**
+
+```
+enable
+configure terminal
+router ospf 1
+router-id 7.7.7.7
+network 10.96.64.0 0.0.31.255 area 0
+network 10.96.240.128 0.0.0.127 area 0
+network 10.96.241.40 0.0.0.3 area 0
+passive-interface GigabitEthernet0/0
+passive-interface GigabitEthernet0/1
+end
+write memory
+```
+
+**Cara Memeriksa:**
+- `show ip ospf neighbor`: semua tetangga berstatus FULL (R-PUSAT 5 tetangga, R-UTARA 3, R-DC 2, sisanya 1).
+- `show ip protocols`: Router ID sesuai, bagian *Routing for Networks* sesuai perintah `network`, dan *Passive Interface(s)* hanya berisi port Gigabit.
+- `show ip ospf interface brief`: kolom `Nbrs F/C` pada interface LAN bernilai `0/0`, membuktikan tidak ada tetangga OSPF di sisi LAN.
+- Sebelum menghapus static route, `show ip ospf database` di R-DC digunakan untuk memeriksa informasi jaringan L7 yang sudah diterima.
+
+Hasil di R-PUSAT: lima tetangga FULL (`7.7.7.7`, `2.2.2.2`, `3.3.3.3`, `6.6.6.6`, `5.5.5.5`) lewat Serial0/1/0, Serial0/0/0, Serial0/0/1, Serial0/1/1, dan Serial0/2/0. Passive interface hanya `GigabitEthernet0/1` dan `GigabitEthernet0/2`. Cost link serial 64 dan LAN 1.
+
+#### Bukti aktivasi OSPF per router:
+
+![Aktivasi OSPF R-PUSAT](Screenshot/soal-7/tahap-2/2_pusat-aktifkan-ospf.png)
+
+![Aktivasi OSPF R-DC](Screenshot/soal-7/tahap-2/2_dc-aktifkan-ospf.png)
+
+![Aktivasi OSPF R-UTARA](Screenshot/soal-7/tahap-2/2_utara-aktifkan-ospf.png)
+
+![Aktivasi OSPF R-PELABUHAN](Screenshot/soal-7/tahap-2/2_pelabuhan-aktifkan-ospf.png)
+
+![Aktivasi OSPF R-BARAT](Screenshot/soal-7/tahap-2/2_barat-aktifkan-ospf.png)
+
+![Aktivasi OSPF R-TIMUR](Screenshot/soal-7/tahap-2/2_timur-aktifkan-ospf.png)
+
+![Aktivasi OSPF R-SELATAN](Screenshot/soal-7/tahap-2/2_selatan-aktifkan-ospf.png)
+
+
+#### Bukti pengujian (neighbor, protocol, interface):
+
+![Uji OSPF R-PUSAT](Screenshot/soal-7/tahap-2/uji-coba/2_pusat-tes.png)
+
+![Uji OSPF R-DC](Screenshot/soal-7/tahap-2/uji-coba/2_dc-tes.png)
+
+![Uji OSPF R-UTARA](Screenshot/soal-7/tahap-2/uji-coba/2_utara-tes.png)
+
+![Uji OSPF R-PELABUHAN](Screenshot/soal-7/tahap-2/uji-coba/2_pelabuhan-tes.png)
+
+![Uji OSPF R-BARAT](Screenshot/soal-7/tahap-2/uji-coba/2_barat-tes.png)
+
+![Uji OSPF R-TIMUR](Screenshot/soal-7/tahap-2/uji-coba/2_timur-tes.png)
+
+![Uji OSPF R-SELATAN](Screenshot/soal-7/tahap-2/uji-coba/2_selatan-tes.png)
+
+### 7.5 Tahap 3: Penghapusan static route antar-router
+
+Static route di sini baru boleh untuk dihapus apabila OSPF sudah terbukti membentuk tetangga dan rute yang benar. Di sini, dihapusnya juga harus dengan urutan **router cabang lebih dahulu**, baru router **R-PUSAT terakhir**. Dengan begitu, R-PUSAT tetap menjadi pembanding jika ada rute cabang yang belum benar.
+
+| Router | Dihapus | Dipertahankan |
+|---|---|---|
+| R-DC, R-BARAT, R-TIMUR, R-SELATAN, R-PELABUHAN | Default route ke router di atasnya | Rute tunnel GRE di R-PELABUHAN |
+| R-UTARA | Default route dan 2 rute ke LAN Pelabuhan | n/a |
+| R-PUSAT | 13 rute ke LAN dan link di bawahnya, termasuk 2 rute cadangan (AD 200) ke LAN Pelabuhan | Default ke ISP (`203.0.113.49`) dan 2 rute tunnel GRE via `192.168.12.2` |
+
+Pada setiap blok, `show ip route` digunakan untuk memeriksa tabel routing setelah penghapusan. `write memory` menyimpan perubahan pada router tersebut.
+
+#### Router cabang
+
+**R-DC**:
+
+```
+enable
+show run | include ip route
+configure terminal
+no ip route 0.0.0.0 0.0.0.0 10.96.241.33
+end
+show ip route
+write memory
+```
+
+**R-BARAT**:
+
+```
+enable
+show run | include ip route
+configure terminal
+no ip route 0.0.0.0 0.0.0.0 10.96.241.49
+end
+show ip route
+write memory
+```
+
+**R-TIMUR**:
+
+```
+enable
+show run | include ip route
+configure terminal
+no ip route 0.0.0.0 0.0.0.0 10.96.241.45
+end
+show ip route
+write memory
+```
+
+**R-SELATAN**:
+
+```
+enable
+show run | include ip route
+configure terminal
+no ip route 0.0.0.0 0.0.0.0 10.96.241.41
+end
+show ip route
+write memory
+```
+
+**R-PELABUHAN**:
+
+```
+enable
+show run | include ip route
+configure terminal
+no ip route 0.0.0.0 0.0.0.0 10.96.241.53
+end
+show ip route
+write memory
+```
+
+**R-UTARA**:
+
+```
+enable
+show run | include ip route
+configure terminal
+no ip route 0.0.0.0 0.0.0.0 10.96.241.37
+no ip route 10.96.160.0 255.255.224.0 10.96.241.54
+no ip route 10.96.240.0 255.255.255.128 10.96.241.54
+end
+show ip route
+write memory
+```
+
+#### R-PUSAT
+
+Pada R-PUSAT, hapus rute ke jaringan bawah yang sebelumnya diarahkan melalui router tetangga. Namun, **jangan hapus** default route ke R-ISP dan dua rute tunnel GRE via `192.168.12.2`.
+
+```
+enable
+show run | include ip route
+configure terminal
+no ip route 10.96.96.0 255.255.224.0 10.96.241.34
+no ip route 10.96.239.0 255.255.255.0 10.96.241.34
+no ip route 10.96.192.0 255.255.224.0 10.96.241.50
+no ip route 10.96.238.0 255.255.255.0 10.96.241.50
+no ip route 10.96.0.0 255.255.192.0 10.96.241.38
+no ip route 10.96.236.0 255.255.254.0 10.96.241.38
+no ip route 10.96.241.52 255.255.255.252 10.96.241.38
+no ip route 10.96.160.0 255.255.224.0 10.96.241.38 200
+no ip route 10.96.240.0 255.255.255.128 10.96.241.38 200
+no ip route 10.96.128.0 255.255.224.0 10.96.241.46
+no ip route 10.96.232.0 255.255.252.0 10.96.241.46
+no ip route 10.96.64.0 255.255.224.0 10.96.241.42
+no ip route 10.96.240.128 255.255.255.128 10.96.241.42
+end
+show ip route
+show run | include ip route
+write memory
+```
+
+Setelah penghapusan, `show run | include ip route` di R-PUSAT menampilkan tiga rute yang dipertahankan:
+
+```
+ip route 0.0.0.0 0.0.0.0 203.0.113.49
+ip route 10.96.160.0 255.255.224.0 192.168.12.2
+ip route 10.96.240.0 255.255.255.128 192.168.12.2
+```
+
+Di R-DC, `show ip route` menampilkan `Gateway of last resort is 10.96.241.33` dan baris `O*E2 0.0.0.0/0 [110/1]`, membuktikan default route kini berasal dari OSPF. Semua LAN lain berkode `O`.
+
+Pengujian konektivitas setelah penghapusan: ping antarwilayah dan ke `8.8.8.8` berhasil, `tracert` PC-PEGAWAI → PC-KANTOR-PELABUHAN masih melewati tunnel, dan R-ISP tidak memiliki rute ke blok `10.96.x.x` (syarat soal 5).
+
+#### Bukti penghapusan static route:
+
+![Penghapusan default route dan pemeriksaan tabel routing R-DC](Screenshot/soal-7/tahap-3/3_dc-hapus-static-dan-cek.png)
+
+![Penghapusan default route dan pemeriksaan tabel routing R-BARAT](Screenshot/soal-7/tahap-3/3_barat-hapus-static-dan-cek.png)
+
+![Penghapusan default route dan pemeriksaan tabel routing R-TIMUR](Screenshot/soal-7/tahap-3/3_timur-hapus-static-dan-cek.png)
+
+![Penghapusan default route dan pemeriksaan tabel routing R-SELATAN](Screenshot/soal-7/tahap-3/3_selatan-hapus-static-dan-cek.png)
+
+![Penghapusan default route dan pemeriksaan tabel routing R-PELABUHAN](Screenshot/soal-7/tahap-3/3_pelabuhan-hapus-static-dan-cek.png)
+
+![Penghapusan static route dan pemeriksaan tabel routing R-UTARA](Screenshot/soal-7/tahap-3/3_utara-hapus-static-dan-cek.png)
+
+![Penghapusan route di R-PUSAT dan pemeriksaan akhir rute yang tersisa (1)](Screenshot/soal-7/tahap-3/3_pusat-hapus-static-dan-cek-1.png)
+
+![Penghapusan route di R-PUSAT dan pemeriksaan akhir rute yang tersisa (2)](Screenshot/soal-7/tahap-3/3_pusat-hapus-static-dan-cek-2.png)
+
+![Pemeriksaan tabel routing R-ISP tanpa rute privat](Screenshot/soal-7/tahap-3/3_isp-cek.png)
+
+#### Uji konektivitas setelah OSPF:
+
+![PC-PEGAWAI ke internet](Screenshot/soal-7/tahap-3/uji-coba/3_pc-pegawai-internet.png)
+
+![PC-KANTOR-PELABUHAN ke internet](Screenshot/soal-7/tahap-3/uji-coba/3_pc-pelabuhan-internet.png)
+
+![Traceroute PC-PEGAWAI ke PC-KANTOR-PELABUHAN](Screenshot/soal-7/tahap-3/uji-coba/3_pc-pegawai-trace-ke-pc-pelabuhan.png)
+
+![Traceroute PC-KANTOR-PELABUHAN ke PC-PEGAWAI](Screenshot/soal-7/tahap-3/uji-coba/3_pc-pelabuhan-trace-ke-pc-pegawai.png)
+
+![PC-CCTV-KOTA ke PC-KANTOR-PELABUHAN lewat L7](Screenshot/soal-7/tahap-3/uji-coba/3_pc-cctv-ke-pc-pelabuhan-tes-L7.png)
+
+### 7.6 Tahap 4: Uji failover (pemulihan otomatis)
+
+Uji ini dilakukan untuk membuktikan bahwa OSPF memindahkan trafik ke jalur alternatif apabila link utama mati. Di sini kita lakukan uji putuskan L1 dan putuskan L2 secara terpisah, dan tidak lupa untuk selalu **pulihkan link yang diuji sebelum memulai uji berikutnya**. Pada topologi terbaru, hanya link L1 dan L2 yang memiliki jalur alternatif melewati L7. Link lain seperti L3–L6 menuju router yang hanya memiliki satu sambungan.
+
+#### Persiapan
+
+1. Pastikan semua link sudah aktif setelah uji sebelumnya. Di R-PUSAT, periksa interface dan tetangga OSPF:
+
+   ```
+   enable
+   show ip interface brief
+   show ip ospf neighbor
+   ```
+
+   Interface serial yang digunakan harus `up/up`; R-PUSAT normalnya melihat lima tetangga berstatus `FULL`.
+
+2. Siapkan dua jendela Packet Tracer: **Command Prompt** pada PC sumber dan **CLI R-PUSAT**. Jangan pernah, sekali lagi, JANGAN PERNAH menyimpan konfigurasi ketika ada interface yang masih `shutdown`.
+
+3. Di setiap uji, catat `tracert` sebelum link diputus. Sesudah jalur pulih, hentikan ping kontinu dengan **Ctrl+C**, dan jalankan `tracert` lagi, lalu pulihkan interface.
+
+#### Uji A: putus L1 antara R-PUSAT dan R-DC
+
+Sumber: **PC-CCTV-KOTA**. Tujuan: **PC-PEGAWAI**, `10.96.224.11`. L1 berada pada `Serial0/0/0` R-PUSAT.  
+Jangan lupa untuk `ipconfig` saat baru memasuki Command Prompt.  
+
+1. Di **PC-CCTV-KOTA → Desktop → Command Prompt**, rekam jalur normal:
+
+   ```
+   tracert 10.96.224.11
+   ```
+
+   Jalur normal melewati gateway CCTV `10.96.96.1`, lalu R-PUSAT pada `10.96.241.33`.
+
+2. Di Command Prompt PC yang sama, mulai ping terus-menerus dan biarkan berjalan:
+
+   ```
+   ping -t 10.96.224.11
+   ```
+
+3. Buka **CLI R-PUSAT** dan matikan interface L1:
+
+   ```
+   enable
+   configure terminal
+   interface Serial0/0/0
+   shutdown
+   end
+   ```
+
+4. Pada Command Prompt PC sebelumnya yang digunakan untuk `ping -t`, akan muncul beberapa `Request timed out` saat OSPF menghitung ulang jalur. Di sini kita bisa menunggu sekitar **40 detik** atau bisa lebih cepat (Bisa juga pake percepat waktu Packet Tracer). Nah, setelah balasan `Reply from 10.96.224.11` muncul kembali, tekan **Ctrl+C** untuk menghentikan ping dan menampilkan statistik.
+
+5. Di PC-CCTV-KOTA, periksa jalur baru setelah `shutdown`:
+
+   ```
+   tracert 10.96.224.11
+   ```
+
+   Jalurnya seharusnya memutar dari R-DC melalui L7 ke R-UTARA (`10.96.241.58`), lalu melalui L2 ke R-PUSAT (`10.96.241.37`).
+   
+   Di **CLI R-DC**, tabel rute juga dapat diperiksa dengan menggunakan:
+
+   ```
+   enable
+   show ip ospf neighbor
+   show ip route
+   ```
+
+6. Coba ping ke Internet, setelah `shutdown`:
+
+   ```
+   ping 8.8.8.8
+   ```
+
+7. Pulihkan L1 di R-PUSAT sebelum lanjut:
+
+   ```
+   enable
+   configure terminal
+   interface Serial0/0/0
+   no shutdown
+   end
+   ```
+
+   Tunggu sampai interface kembali `up/up` dan lima tetangga OSPF R-PUSAT kembali `FULL`:
+
+   ```
+   show ip interface brief
+   show ip ospf neighbor
+   ```
+
+| Kondisi | Jalur `tracert` yang diinginkan |
+|---|---|
+| L1 aktif | `10.96.96.1` (R-DC) → `10.96.241.33` (R-PUSAT lewat L1) → `10.96.224.11` |
+| L1 mati | `10.96.96.1` → `10.96.241.58` (R-UTARA lewat L7) → `10.96.241.37` (R-PUSAT lewat L2) → `10.96.224.11` |
+
+#### Bukti Uji A:
+
+![Ping kontinu yang pulih setelah L1 diputus](Screenshot/soal-7/tahap-4/L1-cctv-ke-pegawai/4_L1-ping-continuous.png)
+
+![Traceroute sebelum L1 diputus](Screenshot/soal-7/tahap-4/L1-cctv-ke-pegawai/4_L1-trace-sebelum.png)
+
+![Traceroute melalui L7 setelah L1 diputus](Screenshot/soal-7/tahap-4/L1-cctv-ke-pegawai/4_L1-trace-setelah-shutdown.png)
+
+![Perintah shutdown dan no shutdown pada L1](Screenshot/soal-7/tahap-4/L1-cctv-ke-pegawai/4_L1-Serial000-shutdown-and-noshutdown.png)
+
+![Pemeriksaan rute di R-DC saat L1 mati](Screenshot/soal-7/tahap-4/L1-cctv-ke-pegawai/4_L1-cek-dc.png)
+
+![Koneksi internet tetap berjalan saat L1 mati](Screenshot/soal-7/tahap-4/L1-cctv-ke-pegawai/4_L1-ping-internet-while-shutdown.png)
+
+#### Uji B: putus L2 antara R-PUSAT dan R-UTARA
+
+Sumber: **PC-SENSOR-LALIN**. Tujuan: **PC-PEGAWAI**, `10.96.224.11`. L2 berada pada `Serial0/0/1` R-PUSAT.
+Jangan lupa untuk `ipconfig` saat baru memasuki Command Prompt.  
+
+1. Di **PC-SENSOR-LALIN → Desktop → Command Prompt**, rekam jalur normal:
+
+   ```
+   tracert 10.96.224.11
+   ```
+
+   Jalur normal melewati gateway sensor `10.96.236.1`, lalu R-PUSAT pada `10.96.241.37`.
+
+2. Di Command Prompt PC yang sama, mulai ping terus-menerus dan biarkan berjalan:
+
+   ```
+   ping -t 10.96.224.11
+   ```
+
+3. Di **CLI R-PUSAT**, matikan interface L2:
+
+   ```
+   enable
+   configure terminal
+   interface Serial0/0/1
+   shutdown
+   end
+   ```
+
+4. Tunggu OSPF menghitung ulang jalur, bisa sekitar **40 detik** atau bisa kurang. Nah, setelah ping kembali membalas, tekan **Ctrl+C** untuk menghentikan. Lalu, jalankan traceroute lagi untuk melihat jalur cadangan (setelah di `shutdown`):
+
+   ```
+   tracert 10.96.224.11
+   ```
+
+   Jalur seharusnya melewati L7 dari R-UTARA ke R-DC (`10.96.241.57`), lalu L1 menuju R-PUSAT (`10.96.241.33`).  
+   Saat L2 masih mati, tetangga pada router R-UTARA juga dapat diperiksa dengan menggunakan:
+
+   ```
+   enable
+   show ip ospf neighbor
+   show ip route
+   ```
+
+   R-UTARA seharusnya masih bertetangga FULL dengan R-DC dan R-PELABUHAN, tetapi tidak bertetangga dengan R-PUSAT karena L2 mati.
+
+5. Pulihkan L2 dari CLI R-PUSAT:
+
+   ```
+   enable
+   configure terminal
+   interface Serial0/0/1
+   no shutdown
+   end
+   ```
+
+   Pastikan interface kembali `up/up`, lima tetangga OSPF di R-PUSAT dan tiga tetangga di R-UTARA kembali `FULL`:
+
+   ```
+   show ip interface brief
+   show ip ospf neighbor
+   ```
+
+| Kondisi | Jalur yang diinginkan |
+|---|---|
+| L2 aktif | R-UTARA (`10.96.236.1`) → R-PUSAT lewat L2 (`10.96.241.37`) → `10.96.224.11` |
+| L2 mati | `10.96.236.1` → R-DC lewat L7 (`10.96.241.57`) → R-PUSAT lewat L1 (`10.96.241.33`) → `10.96.224.11` |
+
+#### Bukti Uji B:
+
+![Ping kontinu yang pulih setelah L2 diputus](Screenshot/soal-7/tahap-4/L2-sensor-ke-pegawai/4_L2-ping-continuous.png)
+
+![Traceroute sebelum L2 diputus](Screenshot/soal-7/tahap-4/L2-sensor-ke-pegawai/4_L2-trace-sebelum.png)
+
+![Traceroute melalui L7 setelah L2 diputus](Screenshot/soal-7/tahap-4/L2-sensor-ke-pegawai/4_L2-trace-setelah-shutdown.png)
+
+![Perintah shutdown dan no shutdown pada L2](Screenshot/soal-7/tahap-4/L2-sensor-ke-pegawai/4_L2-Serial001-shutdown-and-noshutdown.png)
+
+![Pemeriksaan router saat L2 mati](Screenshot/soal-7/tahap-4/L2-sensor-ke-pegawai/4_L2-cek-dc.png)
+
+![Koneksi internet tetap berjalan saat L2 mati](Screenshot/soal-7/tahap-4/L2-sensor-ke-pegawai/4_L2-ping-internet-while-shutdown.png)
+
+#### Setelah kedua pengujian tersebut
+
+1. Pastikan L1 dan L2 sudah `no shutdown`, semua interface serial yang digunakan kembali `up/up`, dan tetangga OSPF kembali `FULL`.
+2. Simpan konfigurasi R-PUSAT setelah semua link pulih:
+
+   ```
+   enable
+   write memory
+   ```
+
+3. JANGAN PERNAH menyimpan keadaan saat link masih `shutdown`. Tidak lupa pastikan file Packet Tracer disimpan setelah topologi kembali normal.
 
 ---
 
-## Soal 8
+## Soal 8: Layanan Aplikasi Smart City
 
->Dikerjakan Oleh Anggota B
+>Dikerjakan Oleh I Made Tobby Anantha Adiwijaya
 
 ### Soal
-> Gunakan domain internal `k12.smartcity.lab`. DNS di LAN Server dan Storage DC, Web "Portal Smart City Surabaya" di LAN Server Balai Kota, FTP di LAN Server dan Storage DC dengan akun login (CCTV dapat upload), serta email antarpegawai Balai Kota dan Pelabuhan.
+> Gunakan domain internal `k12.smartcity.lab`. Sediakan DNS di LAN Server dan Storage DC, web Portal Smart City Surabaya di LAN Server Balai Kota, FTP dengan akun login agar perangkat CCTV dapat mengunggah rekaman, serta email dua arah antara pegawai Balai Kota dan Pelabuhan.
 
-*(Menyusul.)* Catatan dari bagian A: SRV-DC `10.96.239.2` (DNS, FTP) dan SRV-BALAIKOTA `10.96.241.2` (Web) sudah ber-IP statis. DHCP semua host sudah membagikan DNS `10.96.239.2`, jadi cukup aktifkan layanan DNS di SRV-DC.
+### 8.1 Rancangan
+
+Domain internal yang digunakan adalah **`k12.smartcity.lab`**. Lalu, semua layanan memakai IP statis pada server, dan klien mendapatkan alamat server DNS dari DHCP (`10.96.239.2`).
+
+| Layanan | Server | IP server | Nama |
+|---|---|---|---|
+| DNS | SRV-DC (LAN Server dan Storage DC) | `10.96.239.2` | n/a |
+| FTP | SRV-DC | `10.96.239.2` | `ftp.k12.smartcity.lab` |
+| Web | SRV-BALAIKOTA (LAN Server Balai Kota) | `10.96.241.2` | `www.k12.smartcity.lab` |
+| Email (SMTP + POP3) | SRV-BALAIKOTA | `10.96.241.2` | `mail.k12.smartcity.lab` |
+
+Di sini saya menggunakan `SRV-BALAIKOTA` sebagai tempat penempatan email karena Balai Kota adalah pusat jaringan, dan Pelabuhan menjangkaunya melalui tunnel GRE. Pengguna Balai Kota dan Pelabuhan sama-sama memakai email address seperti `nama@k12.smartcity.lab`.
+
+Prinsipnya di sini adalah, DNS hanya menerjemahkan nama menjadi IP. Agar layanan dapat dipakai, harus ada tiga hal sekaligus:  
+1. Record DNS yang menunjuk ke IP yang benar.
+2. Layanan di server aktif
+3. Rute yang menghubungkan klien dengan server.
+
+Layanannya di sini tidak bergantung pada IPsec yang sebelumnya ditambahkan sebagai bonus pada soal 6. IPsecnya hanya mengenkripsi isi tunnel GRE, sedangkan layanan hanya memerlukan jalur yang tersedia.
+
+### 8.2 Tahap 1: Pemeriksaan awal
+
+| Pemeriksaan | Hasil yang diharapkan |
+|---|---|
+| IP statis server | SRV-DC `10.96.239.2` (gateway `10.96.239.1`), SRV-BALAIKOTA `10.96.241.2` (gateway `10.96.241.1`), DNS keduanya `10.96.239.2` |
+| DNS di klien | `ipconfig /all` menampilkan DNS `10.96.239.2` |
+| Jaringan dasar | PC di Balai Kota dan Pelabuhan dapat melakukan ping ke kedua server |
+| Link dan OSPF | Semua serial `up/up`, tetangga OSPF FULL, IPsec `QM_IDLE` |
+
+Hal yang perlu diperhatikan, adalah lalu lintas dari Pelabuhan ke SRV-BALAIKOTA melewati tunnel GRE+IPsec, sehingga beberapa paket pertama dapat hilang sebelum jalur terbentuk. Pengujian dari Pelabuhan juga harus dilakukan setelah jalur "*dipanaskan*" dengan beberapa ping dari `PC-Pegawai` ke `PC-Kantor-Pelabuhan`, dan status IPsec `QM_IDLE` terlihat di R-PUSAT.
+
+Bukti:
+
+![IP SRV-DC](Screenshot/soal-8/tahap-1/1_srv-dc-cek-ip.png)
+
+![IP SRV-BALAIKOTA](Screenshot/soal-8/tahap-1/1_srv-balaikota-cek-ip.png)
+
+![DNS di klien](Screenshot/soal-8/tahap-1/1_cek-dns-klien.png)
+
+![Tes jaringan dasar dari PC-PEGAWAI](Screenshot/soal-8/tahap-1/1_pc-pegawai-tes-jaringan-dasar.png)
+
+![Tes jaringan dasar dari PC-KANTOR-PELABUHAN](Screenshot/soal-8/tahap-1/1_pc-pelabuhan-tes-jaringan-dasar.png)
+
+![Pemanasan jalur dari PC-PEGAWAI ke Pelabuhan](Screenshot/soal-8/tahap-1/1_ping-dari-pc-pegawai-ke-pc-pelabuhan-jika-QM_idle-tidak-ada.png)
+
+![Pemeriksaan keseluruhan dan status QM_IDLE](Screenshot/soal-8/tahap-1/1_cek-semua-dan-pastikan-QM_idle-ada.png)
+
+### 8.3 Tahap 2: DNS (SRV-DC)
+
+Langkah: SRV-DC → Services → DNS → **DNS Service: On**, lalu tambahkan tiga **A Record**:
+
+| Name | Type | Address |
+|---|---|---|
+| `www.k12.smartcity.lab` | A | `10.96.241.2` |
+| `ftp.k12.smartcity.lab` | A | `10.96.239.2` |
+| `mail.k12.smartcity.lab` | A | `10.96.241.2` |
+
+![Pengaturan DNS dan tiga record di SRV-DC](Screenshot/soal-8/tahap-2/2_server-dc-setup-dns-dan-tambah-tiga-service.png)
+
+Satu contoh di sini agar tidak penuh semua klien, saya uji DNS dari **PC-PEGAWAI → Desktop → Command Prompt**. Jalankan perintah berikut satu per satu:
+
+```
+nslookup www.k12.smartcity.lab
+```
+
+Nama `www.k12.smartcity.lab` harus diterjemahkan ke IP web server SRV-BALAIKOTA, yaitu `10.96.241.2`.
+
+```
+nslookup ftp.k12.smartcity.lab
+```
+
+Nama `ftp.k12.smartcity.lab` harus diterjemahkan ke IP FTP server SRV-DC, yaitu `10.96.239.2`.
+
+```
+nslookup mail.k12.smartcity.lab
+```
+
+Nama `mail.k12.smartcity.lab` harus diterjemahkan ke IP mail server SRV-BALAIKOTA, yaitu `10.96.241.2`.  
+Tambahan keterangan, server DNS yang menjawab ketiga permintaan adalah SRV-DC (`10.96.239.2`).
+
+![nslookup tiga layanan dari PC-PEGAWAI](Screenshot/soal-8/tahap-2/2_pc-pegawai-tes-nslookup-tiga-service.png)
+
+Ping juga apabila diperlukan  
+
+![ping tiga layanan dari PC-PEGAWAI](Screenshot/soal-8/tahap-2/2_pc-pegawai-tes-ping-tiga-service.png)
+
+### 8.4 Tahap 3: Web (SRV-BALAIKOTA)
+
+Langkah: SRV-BALAIKOTA → Services → HTTP → **On**.  
+
+![Pengaturan HTTP dan index.html di SRV-BALAIKOTA](Screenshot/soal-8/tahap-3/3_server-balaikota-setup-http-dan-index.png)
+
+Lalu `index.html` diubah menjadi halaman "Portal Smart City Surabaya" yang mencantumkan nomor kelompok 12:
+
+```html
+<html>
+<body>
+<h1>Portal Smart City Surabaya</h1>
+<p>Kelompok 12</p>
+</body>
+</html>
+```
+
+![Perubahan isi index.html](Screenshot/soal-8/tahap-3/3_server-balaikota-ubah-isi-index.png)
+
+Contoh uji dari salah satu klien, contohnya dari `PC-PEGAWAI`, buka Web Browser pada Devices.  
+
+![Membuka Web Browser di PC-PEGAWAI](Screenshot/soal-8/tahap-3/3_pc-pegawai-buka-web-browser.png)
+
+Pada URL, buka `http://www.k12.smartcity.lab` (**memakai nama domain, bukan IP**).  
+
+![Halaman terbuka memakai nama domain](Screenshot/soal-8/tahap-3/3_pc-pegawai-browser-pakai-domain.png)
+
+### 8.5 Tahap 4: FTP (SRV-DC)
+
+1. Pertama, aktifkan FTP dan siapkan akun di SRV-DC. Kemudian, buka **Services → FTP**, ubah **Service** menjadi **On**, lalu isi User Setup dengan username `cctv`. Centang semua izin: **Write, Read, Delete, Rename**, dan **List**, kemudian klik **Add**. Hapus akun bawaan `cisco` agar akses FTP menggunakan akun yang kita siapkan.
+
+   ![Mengaktifkan FTP dan menambahkan akun cctv di SRV-DC](Screenshot/soal-8/tahap-4/4_server-dc-setup-ftp-dan-tambah-user.png)
+
+   Pastikan akun `cctv` muncul pada daftar user FTP.
+
+   ![Daftar akun FTP setelah akun cctv ditambahkan](Screenshot/soal-8/tahap-4/4_server-dc-ftp-user.png)
+
+2. Siapkan file bebas di contoh klien PC-CCTV-KOTA. Buka **Desktop → Text Editor**.
+
+   ![Membuka Text Editor di PC-CCTV-KOTA](Screenshot/soal-8/tahap-4/4_pc-cctv-buka-text-editor.png)
+
+   Tulis isi file `Rekaman CCTV Kota - Kelompok 12`.
+
+   ![Menulis isi file rekaman di Text Editor](Screenshot/soal-8/tahap-4/4_pc-cctv-text-editor.png)
+
+   Lalu pilih **File → Save**.
+
+   ![File rekaman tersimpan di PC-CCTV-KOTA](Screenshot/soal-8/tahap-4/4_pc-cctv-save-text.png)
+
+   Dan simpan dengan nama `rekaman.txt`.
+
+   ![Menyimpan file dengan nama rekaman.txt](Screenshot/soal-8/tahap-4/4_pc-cctv-file-save-name.png)
+
+   
+
+3. Selanjutnya coba unggah file dari LAN CCTV Kota. Buka **Desktop → Command Prompt** pada PC-CCTV-KOTA dan sambungkan ke server FTP:
+
+   ```
+   ftp ftp.k12.smartcity.lab
+   ```
+
+   Saat diminta login, masukkan username `cctv` dan password akun FTP. Setelah prompt `ftp>` muncul.
+
+   ![PC-CCTV-KOTA tersambung ke server FTP](Screenshot/soal-8/tahap-4/4_pc-cctv-connect-ftp-server.png)
+   
+   Unggah file dan periksa daftar file server:
+
+   ```
+   put rekaman.txt
+   dir
+   quit
+   ```
+
+   ![PC-CCTV-KOTA mengunggah rekaman.txt dan memeriksa file di server](Screenshot/soal-8/tahap-4/4_pc-cctv-tes-put-di-ftp-server.png)
+
+   Perintah `put` mengirim file ke server; `dir` memastikan `rekaman.txt` sudah tersimpan.   
+
+4. Kita bisa juga uji akses FTP dari wilayah lain. Contohnya pada `PC-SENSOR-LALIN` di wilayah R-UTARA, buka **Desktop → Command Prompt** lalu sambungkan ke nama server yang sama:
+
+   ```
+   ftp ftp.k12.smartcity.lab
+   ```
+
+   Login dengan akun FTP, lalu unduh dan periksa file:
+
+   ```
+   get rekaman.txt
+   dir
+   quit
+   ```
+
+   File `rekaman.txt` berhasil diunduh di PC-SENSOR-LALIN, membuktikan server FTP SRV-DC dapat diakses dari wilayah lain.
+
+   ![PC-SENSOR-LALIN mengunduh rekaman.txt dari server FTP](Screenshot/soal-8/tahap-4/4_pc-sensor-lalin-tes-get-di-ftp-server.png)
+
+### 8.6 Tahap 5: Email (SRV-BALAIKOTA)
+
+1. Pertama, aktifkan layanan email di SRV-BALAIKOTA. Buka **Services → EMAIL**, nyalakan **SMTP Service** dan **POP3 Service**, isi **Domain Name** dengan `k12.smartcity.lab`, lalu klik **Set**.
+
+   ![Mengaktifkan SMTP dan POP3 serta menetapkan domain email di SRV-BALAIKOTA](Screenshot/soal-8/tahap-5/5_server-balaikota-setup-konfigurasi-server.png)
+
+2. Kemudian, siapkan akun pengguna. Pada bagian **User Setup**, tambahkan contoh akun `pegawai` untuk PC-PEGAWAI dan `pelabuhan` untuk PC-KANTOR-PELABUHAN. Kedua akun memakai domain `k12.smartcity.lab`.
+
+   ![Daftar akun email pegawai dan pelabuhan di SRV-BALAIKOTA](Screenshot/soal-8/tahap-5/5_server-balaikota-user-setup-pegawai-dan-pelabuhan.png)
+
+3. Lalu, atur aplikasi email pada kedua PC. Buka **Desktop → Email → Configure Mail**. Gunakan nilai berikut:
+
+   | Kolom | PC-PEGAWAI | PC-KANTOR-PELABUHAN |
+   |---|---|---|
+   | Your Name | Pegawai | Pelabuhan |
+   | Email Address | `pegawai@k12.smartcity.lab` | `pelabuhan@k12.smartcity.lab` |
+   | Incoming Mail Server | `mail.k12.smartcity.lab` | `mail.k12.smartcity.lab` |
+   | Outgoing Mail Server | `mail.k12.smartcity.lab` | `mail.k12.smartcity.lab` |
+   | User Name | `pegawai` | `pelabuhan` |
+
+   Isi password yang sesuai dengan akun di SRV-BALAIKOTA, kemudian simpan konfigurasi pada masing-masing PC. Nama server `mail.k12.smartcity.lab` dipakai untuk menguji DNS sekaligus layanan email.
+
+   ![Pengaturan aplikasi email di PC-PEGAWAI](Screenshot/soal-8/tahap-5/5_pc-pegawai-configure-mail.png)
+
+   ![Pengaturan aplikasi email di PC-KANTOR-PELABUHAN](Screenshot/soal-8/tahap-5/5_pc-pelabuhan-configure-mail.png)
+
+4. Sekarang coba kirim email dari Pelabuhan ke Balai Kota. Buka aplikasi Email di kedua PC.
+
+   ![Aplikasi email dibuka pada kedua PC](Screenshot/soal-8/tahap-5/5_buka-email-di-kedua-pc-klien-yang-dipakai.png)
+
+   Pada PC-KANTOR-PELABUHAN, tulis email dengan penerima `pegawai@k12.smartcity.lab`, lalu klik **Send**.
+   
+   ![PC-KANTOR-PELABUHAN mengirim email](Screenshot/soal-8/tahap-5/5_pc-pelabuhan-tes-kirim.png)
+
+   ![PC-KANTOR-PELABUHAN menulis email untuk PC-PEGAWAI](Screenshot/soal-8/tahap-5/5_pc-pelabuhan-isi-tes-kirim-ke-pc-pegawai.png)
+
+   Pada PC-PEGAWAI, klik **Receive**. Email dari Pelabuhan muncul di inbox. Di sini kita bisa buka pesannya untuk memastikan isi dan alamat pengirim.
+
+   ![Email dari Pelabuhan diterima pada PC-PEGAWAI](Screenshot/soal-8/tahap-5/5_pc-pegawai-terima-dari-pc-pelabuhan.png)
+
+   ![PC-PEGAWAI membuka email dari Pelabuhan](Screenshot/soal-8/tahap-5/5_pc-pegawai-buka-mail-dari-pc-pelabuhan.png)
+
+5. Kita juga bisa membalas email dari Balai Kota ke Pelabuhan. Dari pesan yang diterima, Pada PC-PEGAWAI coba kirim sebuah balasan. 
+
+   ![PC-PEGAWAI menulis balasan untuk Pelabuhan](Screenshot/soal-8/tahap-5/5_pc-pegawai-reply-mail-ke-pc-pelabuhan.png)
+
+   Pada PC-KANTOR-PELABUHAN, klik **Receive** dan pastikan balasan masuk.
+
+   ![PC-KANTOR-PELABUHAN menerima balasan dari PC-PEGAWAI](Screenshot/soal-8/tahap-5/5_pc-pelabuhan-terima-reply-dari-pc-pegawai.png)
+
+### 8.7 Pengujian dari berbagai wilayah
+
+Pengujian dilakukan dari semua wilayah. Untuk setiap wilayah, kelima pengujian berikut berhasil dilakukan menggunakan PC atau smartphone sesuai perangkat yang tersedia dan layanan yang diuji:  
+1. DNS klien dari DHCP (`ipconfig /all`).
+2. `nslookup`.
+3. Web memakai nama domain.
+4. FTP login lalu `get`/`put`.
+5. Email.
+
+| Wilayah | Perangkat uji | 1. IP/DNS | 2. `nslookup` | 3. Web | 4. FTP | 5. Email |
+|---|---|---|---|---|---|---|
+| Balai Kota | PC-PEGAWAI | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Command Center / DC | PC-CCTV-KOTA | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Utara | PC-SENSOR-LALIN, HP-WIFI-UTARA | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Barat | PC-PUSKESMAS, HP-WIFI-BARAT | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Timur | PC-SENSOR-BANJIR, HP-WIFI-TIMUR | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Selatan | PC-PJU, HP-WIFI-SELATAN | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Pelabuhan | PC-KANTOR-PELABUHAN, PC-SCADA | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+Kelima pengujian berhasil di seluruh wilayah, baik menggunakan PC maupun smartphone sesuai pengujiannya. Email juga berhasil dikirim dan diterima dua arah antara semua PC dan smartphone.
 
 ---
 
@@ -1111,3 +1974,4 @@ Tracert `PC-PEGAWAI` ke `PC-KANTOR-PELAUHAN` masih lewat `192.168.12.2`.
 | Ping pertama `Request timed out` | Proses ARP pada paket pertama | Ulangi ping |
 | Salah ketik perintah membuat CLI "macet" | Router mencoba DNS lookup nama perintah | `no ip domain-lookup` di semua router |
 | Serial `up/down` | Clock rate belum diset di sisi DCE | `clock rate 64000` di router atas; cek dengan `show controllers` |
+| `SMTP authentication error` saat mengirim email | Username yang disetel di SRV-BALAIKOTA memakai tanda hubung (`-`), sedangkan username dengan tanda hubung tidak diterima | Gunakan username tanpa tanda hubung di SRV-BALAIKOTA, lalu samakan username dan password pada klien email |
