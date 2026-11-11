@@ -105,6 +105,15 @@ write memory
 
 > **Penting:** Jangan menyimpan konfigurasi saat L1 masih `shutdown`. Jika waktu demo sangat terbatas, fokuskan failover pada L1; jangan mulai uji L2 sebelum L1 dipulihkan.
 
+### Pertanyaan yang mungkin ditanyakan — Soal 7
+
+- **Apa bedanya OSPF dengan static routing?** Static route ditulis manual pada router, sedangkan OSPF bertukar informasi rute dengan tetangga dan menghitung ulang jalur saat topologi berubah.
+- **Apa arti neighbor `FULL`?** Router sudah membentuk adjacency OSPF dan menyelaraskan informasi link-state dengan tetangganya.
+- **Mengapa ada `O*E2 0.0.0.0/0`?** Itu default route eksternal yang berasal dari R-PUSAT dan disebarkan ke router lain melalui OSPF.
+- **Apa fungsi L7?** L7 menghubungkan R-DC dengan R-UTARA sebagai jalur alternatif agar trafik tetap dapat menuju R-PUSAT saat L1 atau L2 terputus.
+- **Mengapa ping sempat RTO?** Setelah link putus, OSPF perlu mendeteksi perubahan dan menghitung ulang rute. Selama konvergensi, sebagian paket bisa hilang; setelah rute alternatif terpasang, reply pulih.
+- **Bagaimana membuktikan jalur berubah?** Bandingkan `tracert` sebelum dan sesudah L1 diputus; jalur setelahnya semestinya melewati L7 melalui R-UTARA.
+
 ### Catatan demo Soal 7
 
 - Sebelum mulai, pastikan L1 dan L7 aktif, rute OSPF sudah muncul, dan neighbor berstatus `FULL`.
@@ -207,6 +216,15 @@ Klik **Receive** pada PC-KANTOR-PELABUHAN dan tunjukkan email balasan masuk. Ked
 **Kesimpulan lisan:**
 
 > “Dari Balai Kota dan wilayah lain, DNS menerjemahkan nama layanan dengan benar dan portal web dapat dibuka menggunakan domain. FTP memungkinkan CCTV mengunggah rekaman dan wilayah Utara mengunduhnya. Email berhasil dikirim dan diterima dua arah antara Balai Kota dan Pelabuhan.”
+
+### Pertanyaan yang mungkin ditanyakan — Soal 8
+
+- **Apa fungsi DNS?** DNS menerjemahkan nama domain layanan menjadi alamat IP server. Contohnya `www.k12.smartcity.lab` menjadi `10.96.241.2`.
+- **Mengapa web diuji dengan nama domain?** Agar terbukti klien dapat menggunakan DNS untuk menemukan server, bukan hanya mengakses alamat IP secara langsung.
+- **Apa bedanya `put` dan `get` pada FTP?** `put` mengunggah file dari klien ke server, sedangkan `get` mengunduh file dari server ke klien.
+- **Apa fungsi SMTP dan POP3?** SMTP digunakan untuk mengirim email ke server; POP3 digunakan klien untuk mengambil email dari server.
+- **Mengapa sesi IPsec perlu `QM_IDLE` saat menguji Pelabuhan?** `QM_IDLE` menunjukkan sesi ISAKMP/IPsec sudah terbentuk dan siap membawa trafik yang dilindungi di antara kedua peer.
+- **Apakah DNS saja cukup agar layanan dapat dipakai?** Tidak. Nama harus diterjemahkan ke IP yang benar, layanan pada server harus aktif, dan harus ada jalur jaringan dari klien ke server.
 
 ### Catatan demo Soal 8
 
